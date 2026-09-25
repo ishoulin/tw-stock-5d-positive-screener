@@ -8,7 +8,15 @@ import pandas as pd
 # 1. 取得台股上市櫃股票清單 (排除 00 開頭的 ETF 與 91 開頭的 TDR)
 def get_tw_stock_list():
     url = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2" # 上市
-    df = pd.read_html(url)[0]
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    # 抓取網頁原始內容
+    response = requests.get(url, headers=headers)
+    # 明確指定台灣傳統網頁編碼 cp950 (Big5)
+    response.encoding = 'cp950'
+
+    # 用 StringIO 包裹後再給 pandas 讀取
+    df = pd.read_html(io.StringIO(response.text))[0]
     df.columns = df.iloc[0]
     df = df.iloc[1:]
     
