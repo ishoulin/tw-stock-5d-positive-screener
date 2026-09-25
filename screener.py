@@ -8,47 +8,63 @@ from email.mime.multipart import MIMEMultipart
 import yfinance as yf
 import pandas as pd
 
-# 1. 取得台股上市與上櫃股票清單 (修復網頁抓取與解析問題)
+# 1. 取得台股上市與上櫃股票清單 (具備備援機制的雙保險版本)
 def get_tw_stock_list():
+    stocks = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+
+    # 方法 A: 嘗試從證交所 OpenAPI / 網頁抓取
     urls = [
         ("https://isin.twse.com.tw/isin/C_public.jsp?strMode=2", ".TW"),  # 上市
         ("https://isin.twse.com.tw/isin/C_public.jsp?strMode=4", ".TWO") # 上櫃
     ]
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    stocks = []
-
     for url, suffix in urls:
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=5)
             response.encoding = 'cp950'
-            
-            # 使用 pandas 解析表格
             dfs = pd.read_html(io.StringIO(response.text))
-            if not dfs:
-                continue
-                
-            df = dfs[0]
-            
-            # 遍歷表格第一欄（通常為「有價證券代號及名稱」）
-            first_col = df.iloc[:, 0].dropna()
-            
-            for cell in first_col:
-                cell_str = str(cell).strip()
-                # 判斷格式如 "2330 台積電"
-                if ' ' in cell_str:
-                    code, name = cell_str.split(' ', 1)
-                    code = code.strip()
-                    # 嚴格過濾：4 位數純數字，且排除 ETF (00開頭) 與 TDR (91開頭)
-                    if len(code) == 4 and code.isdigit() and not code.startswith(('00', '91')):
-                        stocks.append(f"{code}{suffix}")
+            if dfs:
+                df = dfs[0]
+                first_col = df.iloc[:, 0].dropna()
+                for cell in first_col:
+                    cell_str = str(cell).strip()
+                    if ' ' in cell_str:
+                        code, name = cell_str.split(' ', 1)
+                        code = code.strip()
+                        if len(code) == 4 and code.isdigit() and not code.startswith(('00', '91')):
+                            stocks.append(f"{code}{suffix}")
         except Exception as e:
-            print(f"抓取 {url} 失敗: {e}")
-            
-    return list(set(stocks)) # 移除重複項
+            print(f"嘗試抓取 {url} 失敗: {e}")
+
+    # 方法 B: 若方法 A 被證交所封鎖 (抓到 0 檔)，啟動備援 API
+    if len(stocks) == 0:
+        print("警告：證交所網頁連線受阻，啟動備援 OpenData 管道...")
+        try:
+            # 使用政府資料開放平臺 API (上市)
+            url_twse_api = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
+            res = requests.get(url_twse_api, headers=headers, timeout=10)
+            data = res.json()
+            for item in data:
+                code = item.get('Code', '').strip()
+                if len(code) == 4 and code.isdigit() and not code.startswith(('00', '91')):
+                    stocks.append(f"{code}.TW")
+
+            # 使用政府資料開放平臺 API (上櫃)
+            url_tpex_api = "https://www.tpex.org.tw/openapi/v1/mopsfront/t187ap03_O"
+            res_tpex = requests.get(url_tpex_api, headers=headers, timeout=10)
+            data_tpex = res_tpex.json()
+            for item in data_tpex:
+                code = item.get('SecuritiesCompanyCode', '').strip()
+                if len(code) == 4 and code.isdigit() and not code.startswith(('00', '91')):
+                    stocks.append(f"{code}.TWO")
+        except Exception as e:
+            print(f"備援管道抓取失敗: {e}")
+
+    final_list = list(set(stocks))
+    return final_list
 
 # 2. 發送 Email 通知
 def send_email(subject, content):
