@@ -1,10 +1,10 @@
-name: Weekly Stock Screener Bot
+name: Weekly Stock Screener Bot (Email)
 
 on:
   schedule:
-    # 台灣時間每週五下午 14:30 (UTC 時間 06:30) 執行
+    # 台灣時間每週五 15:29 (對應 UTC 時間 07:29)
     - cron: '29 7 * * 5'
-  workflow_dispatch: # 支援在 GitHub 頁面上手動觸發測試
+  workflow_dispatch: # 支援在 GitHub 網頁手動點擊測試
 
 jobs:
   run-screener:
@@ -26,6 +26,8 @@ jobs:
 
       - name: Run Screener Script
         env:
-          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
         run: |
           python screener.py
